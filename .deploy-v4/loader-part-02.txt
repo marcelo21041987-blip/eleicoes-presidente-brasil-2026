@@ -1,0 +1,65 @@
+function controls(A){let d1=A.no1+A.b1+A.n1-A.c1,d2=A.no2+A.b2+A.n2-A.c2;$('close1').innerHTML=d1===0?'<span class="good">Fecha em 0</span>':'<span class="bad">Dif. '+sg(d1)+'</span>';$('close2').innerHTML=d2===0?'<span class="good">Fecha em 0</span>':'<span class="bad">Dif. '+sg(d2)+'</span>';$('inst1').textContent=fmt(A.i1)+' / '+fmt(A.n);$('inst2').textContent=fmt(A.i2)+' / '+fmt(A.n)}
+function detail(r){let d=$('detail');if(!r){d.classList.remove('show');return}d.classList.add('show');let fs=[['UF',uf(r[F.U])],['Município',name(r[F.M])],['Zona',r[F.Z]],['Seção',r[F.S]],['1ºT comparecimento',fmt(r[F.C1])],['2ºT comparecimento',fmt(r[F.C2])],['1ºT aptos',fmt(r[F.APT1])],['2ºT aptos',fmt(r[F.APT2])],['1ºT abstenções',r[F.I1]?fmt(r[F.ABS1]):'Seção não instalada'],['2ºT abstenções',r[F.I2]?fmt(r[F.ABS2]):'Seção não instalada'],['1ºT instalada',r[F.I1]?'Sim':'Não'],['2ºT instalada',r[F.I2]?'Sim':'Não'],['1ºT Lula / Flávio',fmt(r[F.L1])+' / '+fmt(r[F.F1])],['2ºT Lula / Flávio',fmt(r[F.L2])+' / '+fmt(r[F.F2])],['1ºT brancos / nulos',fmt(r[F.B1])+' / '+fmt(r[F.N1])],['2ºT brancos / nulos',fmt(r[F.B2])+' / '+fmt(r[F.N2])],['1ºT sem hab. biométrica',fmt(r[F.BIO1])+' ('+(r[F.C1]?pct(r[F.BIO1]/r[F.C1]):'—')+')'],['2ºT sem hab. biométrica',fmt(r[F.BIO2])+' ('+(r[F.C2]?pct(r[F.BIO2]/r[F.C2]):'—')+')'],['1ºT demais votantes',fmt(Math.max(0,r[F.C1]-r[F.BIO1]))],['2ºT demais votantes',fmt(Math.max(0,r[F.C2]-r[F.BIO2]))]];$('facts').innerHTML=fs.map(x=>'<div class="fact"><small>'+x[0]+'</small><strong>'+x[1]+'</strong></div>').join('')}
+
+function buildTable(rr){
+ table=[];
+ if(cur.s!==null){$('ttl').textContent='Seção selecionada';return}
+ if(cur.u===null){
+   table=SUMMARY.perUF.map((A,u)=>({k:u,A,lab:uf(u)==='ZZ'?'ZZ — Exterior':uf(u),sub:''}));
+   $('ttl').textContent='Estados e exterior';$('h1').textContent='UF';return;
+ }
+ let level=cur.m===null?'m':cur.z===null?'z':'s',
+ get=level==='m'?r=>r[F.M]:level==='z'?r=>r[F.Z]:r=>r[F.S],
+ a=rr[0],b=rr[1],start=a,last=null;
+ for(let i=a;i<=b;i++){
+   let k=i<b?get(rows[i]):null;
+   if(i===a){last=k;start=i}
+   else if(k!==last){
+     let A=level==='s'?one(rows[start]):agg(start,i),
+     lab=level==='m'?name(last):level==='z'?'Zona '+last:'Seção '+last;
+     table.push({k:last,A,lab,sub:''});start=i;last=k
+   }
+ }
+ $('ttl').textContent=level==='m'?'Municípios':level==='z'?'Zonas eleitorais':'Seções';
+ $('h1').textContent=level==='m'?'Município':level==='z'?'Zona':'Seção';
+}
+
+function metric(o,k){let A=o.A;if(k==='l2')return A.l2;if(k==='f2')return A.f2;if(k==='c2')return A.c2;if(k==='bio2')return A.bio2;if(k==='biorate2')return A.c2?A.bio2/A.c2:0;return(A.l2-A.f2)-(A.l1-A.f1)}
+
+function drawTable(){
+ let q=$('q').value.trim().toLocaleUpperCase('pt-BR'),k=$('sort').value,
+ arr=table.filter(x=>!q||x.lab.toLocaleUpperCase('pt-BR').includes(q));
+ arr.sort((a,b)=>metric(b,k)-metric(a,k));
+ $('tb').innerHTML=arr.map(o=>{let A=o.A,sh=(A.l2-A.f2)-(A.l1-A.f1);return'<tr data-k="'+o.k+'"><td><strong>'+o.lab+'</strong></td><td>'+o.sub+'</td><td>'+fmt(A.n)+'</td><td>'+fmt(A.l1)+'</td><td>'+fmt(A.f1)+'</td><td>'+fmt(A.l2)+'</td><td>'+fmt(A.f2)+'</td><td class="'+(sh>=0?'good':'bad')+'">'+sg(sh)+'</td><td>'+fmt(A.c2)+'</td><td>'+fmt(A.bio1)+'</td><td>'+fmt(A.bio2)+'</td><td>'+(A.c2?pct(A.bio2/A.c2):'—')+'</td><td>'+fmt(A.b2+A.n2)+'</td></tr>'}).join('');
+ let level=cur.u===null?'u':cur.m===null?'m':cur.z===null?'z':'s';
+ $('tb').querySelectorAll('tr').forEach(tr=>tr.onclick=async()=>{
+   let k=+tr.dataset.k;
+   if(level==='u'){try{await selectUF(k)}catch(e){console.error(e)}}
+   else if(level==='m'){cur.m=k;$('mun').value=k;fillZ();render()}
+   else if(level==='z'){cur.z=k;$('z').value=k;fillS();render()}
+   else{cur.s=k;$('s').value=k;render()}
+ })
+}
+
+
+function outliers(){
+ if(!$('outlierPanel').open)return;
+ let N=+$('on').value;
+ if(cur.u===null){
+   let o=SUMMARY.outliersNational.slice(0,N);
+   $('ob').innerHTML=o.map(x=>{let r=x.r,sh=x.sh;return'<tr data-u="'+r[0]+'" data-m="'+r[1]+'" data-z="'+r[2]+'" data-s="'+r[3]+'"><td>'+uf(r[0])+'</td><td>'+name(r[1])+'</td><td>'+r[2]+'</td><td>'+r[3]+'</td><td>'+fmt(r[4])+' / '+fmt(r[5])+'</td><td>'+fmt(r[6])+' / '+fmt(r[7])+'</td><td class="'+(sh>=0?'good':'bad')+'">'+(sh>0?'+':'')+PF.format(sh*100)+' p.p.</td><td>'+sg(r[9]-r[8])+'</td></tr>'}).join('');
+   $('ob').querySelectorAll('tr').forEach(tr=>tr.onclick=()=>gotoCase(+tr.dataset.u,+tr.dataset.m,+tr.dataset.z,+tr.dataset.s));
+   return;
+ }
+ let[a,b]=range(),o=[];
+ for(let i=a;i<b;i++){let r=rows[i],d1=r[F.L1]+r[F.F1],d2=r[F.L2]+r[F.F2];if(d1<100||d2<100)continue;let sh=r[F.L2]/d2-r[F.L1]/d1;o.push([Math.abs(sh),sh,r])}
+ o.sort((a,b)=>b[0]-a[0]);o=o.slice(0,N);
+ $('ob').innerHTML=o.map(x=>{let r=x[2],sh=x[1];return'<tr data-u="'+r[F.U]+'" data-m="'+r[F.M]+'" data-z="'+r[F.Z]+'" data-s="'+r[F.S]+'"><td>'+uf(r[F.U])+'</td><td>'+name(r[F.M])+'</td><td>'+r[F.Z]+'</td><td>'+r[F.S]+'</td><td>'+fmt(r[F.L1])+' / '+fmt(r[F.F1])+'</td><td>'+fmt(r[F.L2])+' / '+fmt(r[F.F2])+'</td><td class="'+(sh>=0?'good':'bad')+'">'+(sh>0?'+':'')+PF.format(sh*100)+' p.p.</td><td>'+sg(r[F.C2]-r[F.C1])+'</td></tr>'}).join('');
+ $('ob').querySelectorAll('tr').forEach(tr=>tr.onclick=()=>gotoCase(+tr.dataset.u,+tr.dataset.m,+tr.dataset.z,+tr.dataset.s));
+}
+
+function escHtml(v){return String(v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
+function mostrarComparacao(A){
+ const nacional=cur.u===null;
+ const dados=[['Aptos em seções instaladas',A.apt1,A.apt2],['Comparecimento',A.c1,A.c2],['Abstenções',A.abs1,A.abs2],['Votos em branco',A.b1,A.b2],['Nulos registrados na urna',A.n1,A.n2],['Nulos técnicos — total nacional',nacional?5246:null,nacional?0:null],['Total de nulos — relatório nacional',nacional?A.n1+5246:null,nacional?A.n2:null],['Biometria cadastrada, sem habilitação por ela',A.bio1,A.bio2]];
+ $('auditTotals').innerHTML=dados.map(([label,x,y])=>'<tr><td>'+label+'</td><td>'+(x===null?'—':fmt(x))+'</td><td>'+(y===null?'—':fmt(y))+'</td><td>'+(x===null||y==
