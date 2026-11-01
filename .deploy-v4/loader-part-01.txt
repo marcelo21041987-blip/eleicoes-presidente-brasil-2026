@@ -1,0 +1,35 @@
+;$('s').innerHTML='<option value="">Todas</option>';$('s').disabled=true;if(cur.u===null)return;let[a,b]=state.get(cur.u),last=-1;for(let i=a;i<b;i++){let m=rows[i][F.M];if(m!==last){e.add(new Option(name(m),m));last=m}}}
+function fillZ(){let e=$('z');e.innerHTML='<option value="">Todas</option>';e.disabled=cur.m===null;$('s').innerHTML='<option value="">Todas</option>';$('s').disabled=true;if(cur.m===null)return;let[a,b]=mun.get(cur.u+'|'+cur.m),last=-1;for(let i=a;i<b;i++){let z=rows[i][F.Z];if(z!==last){e.add(new Option('Zona '+z,z));last=z}}}
+function fillS(){let e=$('s');e.innerHTML='<option value="">Todas</option>';e.disabled=cur.z===null;if(cur.z===null)return;let[a,b]=zone.get(cur.u+'|'+cur.m+'|'+cur.z);for(let i=a;i<b;i++)e.add(new Option('Seção '+rows[i][F.S],rows[i][F.S]))}
+function range(){if(cur.z!==null)return zone.get(cur.u+'|'+cur.m+'|'+cur.z);if(cur.m!==null)return mun.get(cur.u+'|'+cur.m);if(cur.u!==null)return state.get(cur.u);return[0,rows.length]}
+function sel(){if(cur.s===null)return null;let[a,b]=range();for(let i=a;i<b;i++)if(rows[i][F.S]===cur.s)return rows[i];return null}
+function one(r){return{n:1,c1:r[F.C1],l1:r[F.L1],f1:r[F.F1],no1:r[F.NO1],b1:r[F.B1],n1:r[F.N1],i1:r[F.I1],c2:r[F.C2],l2:r[F.L2],f2:r[F.F2],no2:r[F.NO2],b2:r[F.B2],n2:r[F.N2],i2:r[F.I2],bio1:r[F.BIO1],bio2:r[F.BIO2],apt1:r[F.I1]?r[F.APT1]:0,apt2:r[F.I2]?r[F.APT2]:0,abs1:r[F.I1]?r[F.ABS1]:0,abs2:r[F.I2]?r[F.ABS2]:0}}
+function agg(a,b){let A={n:0,c1:0,l1:0,f1:0,no1:0,b1:0,n1:0,i1:0,c2:0,l2:0,f2:0,no2:0,b2:0,n2:0,i2:0,bio1:0,bio2:0,apt1:0,apt2:0,abs1:0,abs2:0};for(let i=a;i<b;i++){let r=rows[i];A.n++;A.c1+=r[F.C1];A.l1+=r[F.L1];A.f1+=r[F.F1];A.no1+=r[F.NO1];A.b1+=r[F.B1];A.n1+=r[F.N1];A.i1+=r[F.I1];A.c2+=r[F.C2];A.l2+=r[F.L2];A.f2+=r[F.F2];A.no2+=r[F.NO2];A.b2+=r[F.B2];A.n2+=r[F.N2];A.i2+=r[F.I2];A.bio1+=r[F.BIO1];A.bio2+=r[F.BIO2];if(r[F.I1]){A.apt1+=r[F.APT1];A.abs1+=r[F.ABS1]}if(r[F.I2]){A.apt2+=r[F.APT2];A.abs2+=r[F.ABS2]}}return A}
+
+function render(){
+ let rr=range(),r=sel(),A=cur.u===null?SUMMARY.national:(r?one(r):agg(...rr));
+ crumb();kpis(A);bars(A);controls(A);biometrics(A);mostrarComparacao(A);calcularTriagem();detail(r);buildTable(rr);drawTable();outliers();
+ if($('matrixWrap'))$('matrixWrap').style.display='none';
+ if($('transPanel')&&$('transPanel').open&&cur.u!==null)renderTransversal();
+}
+
+
+function crumb(){
+ let h='<button data-c="b">Brasil</button>';
+ if(cur.u!==null)h+='<span>›</span><button data-c="u">'+uf(cur.u)+'</button>';
+ if(cur.m!==null)h+='<span>›</span><button data-c="m">'+name(cur.m)+'</button>';
+ if(cur.z!==null)h+='<span>›</span><button data-c="z">Zona '+cur.z+'</button>';
+ if(cur.s!==null)h+='<span>›</span><strong>Seção '+cur.s+'</strong>';
+ $('cr').innerHTML=h;
+ $('cr').querySelectorAll('button').forEach(b=>b.onclick=async()=>{
+   let c=b.dataset.c;
+   if(c==='b'){await selectUF(null)}
+   else if(c==='u'){cur.m=cur.z=cur.s=null;$('mun').value='';fillZ();render()}
+   else if(c==='m'){cur.z=cur.s=null;$('z').value='';fillS();render()}
+   else{cur.s=null;$('s').value='';render()}
+ })
+}
+
+function kpis(A){let c=turn==='1'?A.c1:A.c2,l=turn==='1'?A.l1:A.l2,f=turn==='1'?A.f1:A.f2,bn=turn==='1'?A.b1+A.n1:A.b2+A.n2,m=l-f;$('ksec').textContent=fmt(A.n);$('ksec2').textContent=cur.s!==null?'seção selecionada':'no escopo; inclui não instaladas';$('kcmp').textContent=fmt(c);$('kcmp2').textContent=turn==='C'?'Δ '+sg(A.c2-A.c1):turn+'º turno';$('kl').textContent=fmt(l);$('kl2').textContent=turn==='C'?'Δ '+sg(A.l2-A.l1):turn+'º turno';$('kf').textContent=fmt(f);$('kf2').textContent=turn==='C'?'Δ '+sg(A.f2-A.f1):turn+'º turno';$('km').textContent=sg(m);$('km2').textContent=turn==='C'?'1T '+sg(A.l1-A.f1)+' → 2T '+sg(A.l2-A.f2)+' • desloc. '+sg((A.l2-A.f2)-(A.l1-A.f1)):turn+'º turno';$('kbn').textContent=fmt(bn);$('kbn2').textContent=turn==='C'?'1T '+fmt(A.b1+A.n1)+' → 2T '+fmt(A.b2+A.n2):'brancos + nulos na urna; sem nulos técnicos'}
+function bars(A){let sets=[];if(turn==='1'||turn==='C')sets.push(['1º turno',A.l1,A.f1,Math.max(0,A.no1-A.l1-A.f1)]);if(turn==='2'||turn==='C')sets.push(['2º turno',A.l2,A.f2,Math.max(0,A.no2-A.l2-A.f2)]);let h='';for(let[s,l,f,o]of sets){let total=l+f+o||1;h+='<div><div class="muted" style="margin-bottom:4px">'+s+' • nominais '+fmt(total)+'</div>';for(let[n,v,c]of[['Lula',l,'lula'],['Flávio',f,'flavio'],['Outros',o,'outros']]){if(n==='Outros'&&v===0)continue;h+='<div class="bar"><span>'+n+'</span><div class="track"><div class="fill '+c+'" style="width:'+Math.max(.3,v/total*100)+'%"></div></div><strong>'+fmt(v)+' <span class="muted">('+pct(v/total)+')</span></strong></div>'}h+='</div>'}$('bars').innerHTML=h;$('vnote').innerHTML=turn==='C'?'Deslocamento da margem Lula−Flávio: <strong>'+sg((A.l2-A.f2)-(A.l1-A.f1))+'</strong>. Δ comparecimento: <strong>'+sg(A.c2-A.c1)+'</strong>.':'Margem Lula−Flávio: <strong>'+sg((turn==='1'?A.l1-A.f1:A.l2-A.f2))+'</strong>.'}
+function biometrics(A){let bt=$('bioTurn')?$('bioTurn').value:'2',c,b;if(bt==='1'){c=A.c1;b=A.bio1}else if(bt==='2'){c=A.c2;b=A.bio2}else{c=A.c2;b=A.bio2}$('bc').textContent=bt==='C'?'1T '+fmt(A.c1)+' → 2T '+fmt(A.c2):fmt(c);$('bsem').textContent=bt==='C'?'1T '+fmt(A.bio1)+' → 2T '+fmt(A.bio2):fmt(b);$('bdemais').textContent=bt==='C'?'1T '+fmt(Math.max(0,A.c1-A.bio1))+' → 2T '+fmt(Math.max(0,A.c2-A.bio2)):fmt(Math.max(0,c-b));$('brate').textContent=bt==='C'?(A.c1?pct(A.bio1/A.c1):'—')+' → '+(A.c2?pct(A.bio2/A.c2):'—'):(c?pct(b/c):'—');$('bnote').innerHTML=bt==='C'?'Variação do contador: <strong>'+sg(A.bio2-A.bio1)+'</strong>. O campo significa eleitoras/es <strong>com biometria, mas não habilitados por meio dela</strong>; não é o total sem cadastro biométrico. “Demais votantes” é apenas o complemento aritmético do comparecimento.':'Campo oficial <code>QT_ELEI_BIOM_SEM_HABILITACAO</code>: eleitoras/es com biometria cadastrada, mas que não foram habilitados por meio dela. Não representa o total sem cadastro biométrico. O complemento não deve ser interpretado automaticamente como “digital reconhecida”.'}
