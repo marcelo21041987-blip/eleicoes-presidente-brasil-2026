@@ -1,0 +1,46 @@
+ria sem habilitação / comparecimento — 1º turno',short:'Bio 1T',unit:'pct'},bio2:{label:'Biometria sem habilitação / comparecimento — 2º turno',short:'Bio 2T',unit:'pct'},dbio:{label:'Variação da taxa biométrica',short:'Δ bio p.p.',unit:'pp'},
+ l1:{label:'Votos Lula — 1º turno',short:'Lula 1T',unit:'count'},l2:{label:'Votos Lula — 2º turno',short:'Lula 2T',unit:'count'},dl:{label:'Variação de votos Lula',short:'Δ Lula',unit:'count'},
+ f1:{label:'Votos Flávio — 1º turno',short:'Flávio 1T',unit:'count'},f2:{label:'Votos Flávio — 2º turno',short:'Flávio 2T',unit:'count'},df:{label:'Variação de votos Flávio',short:'Δ Flávio',unit:'count'},
+ share1:{label:'Participação Lula entre Lula+Flávio — 1º turno',short:'Part. Lula 1T',unit:'pct'},share2:{label:'Participação Lula entre Lula+Flávio — 2º turno',short:'Part. Lula 2T',unit:'pct'},dshare:{label:'Variação da participação Lula entre finalistas',short:'Δ part. Lula',unit:'pp'},
+ margin1:{label:'Margem Lula − Flávio — 1º turno',short:'Margem 1T',unit:'count'},margin2:{label:'Margem Lula − Flávio — 2º turno',short:'Margem 2T',unit:'count'},dmargin:{label:'Deslocamento da margem Lula − Flávio',short:'Δ margem',unit:'count'}
+};
+const MATRIX_KEYS=['bio2','abs2','inv2','dcp','dapt','dbio','dabs','dinv','dshare'];
+function initTransSelectors(){let x=$('transX'),y=$('transY');x.innerHTML='';y.innerHTML='';for(const [k,m] of Object.entries(TRANS_METRICS)){x.add(new Option(m.label,k));y.add(new Option(m.label,k))}x.value='bio2';y.value='dshare'}
+function transVal(r,k){let c1=r[F.C1],c2=r[F.C2],a1=r[F.APT1],a2=r[F.APT2],d1=r[F.L1]+r[F.F1],d2=r[F.L2]+r[F.F2];switch(k){case'c1':return c1;case'c2':return c2;case'dc':return c2-c1;case'dcp':return c1?(c2-c1)/c1*100:null;case'apt1':return a1;case'apt2':return a2;case'dapt':return a2-a1;case'abs1':return a1?r[F.ABS1]/a1*100:null;case'abs2':return a2?r[F.ABS2]/a2*100:null;case'dabs':return a1&&a2?(r[F.ABS2]/a2-r[F.ABS1]/a1)*100:null;case'inv1':return c1?(r[F.B1]+r[F.N1])/c1*100:null;case'inv2':return c2?(r[F.B2]+r[F.N2])/c2*100:null;case'dinv':return c1&&c2?((r[F.B2]+r[F.N2])/c2-(r[F.B1]+r[F.N1])/c1)*100:null;case'bio1':return c1?r[F.BIO1]/c1*100:null;case'bio2':return c2?r[F.BIO2]/c2*100:null;case'dbio':return c1&&c2?(r[F.BIO2]/c2-r[F.BIO1]/c1)*100:null;case'l1':return r[F.L1];case'l2':return r[F.L2];case'dl':return r[F.L2]-r[F.L1];case'f1':return r[F.F1];case'f2':return r[F.F2];case'df':return r[F.F2]-r[F.F1];case'share1':return d1?r[F.L1]/d1*100:null;case'share2':return d2?r[F.L2]/d2*100:null;case'dshare':return d1&&d2?(r[F.L2]/d2-r[F.L1]/d1)*100:null;case'margin1':return r[F.L1]-r[F.F1];case'margin2':return r[F.L2]-r[F.F2];case'dmargin':return(r[F.L2]-r[F.F2])-(r[F.L1]-r[F.F1]);default:return null}}
+function transEligible(r,min){if(!r[F.I1]||!r[F.I2]||r[F.C1]<min||r[F.C2]<min)return false;if(cur.u===null&&uf(r[F.U])==='ZZ')return false;return true}
+function tfmt(v,k){if(v===null||!Number.isFinite(v))return'—';let u=TRANS_METRICS[k].unit;if(u==='count')return NF.format(Math.round(v));return PF.format(v)+(u==='pp'?' p.p.':'%')}
+function corrLabel(r){let a=Math.abs(r);if(!Number.isFinite(r))return'Correlação não calculável neste recorte.';let mag=a<.1?'muito fraca':a<.3?'fraca':a<.5?'moderada':a<.7?'acentuada':'forte';return'Associação linear '+mag+' e '+(r>0?'positiva':r<0?'negativa':'nula')+'. Correlação não demonstra causalidade.'}
+function scopeLabel(){if(cur.s!==null)return'1 seção';if(cur.z!==null)return'Zona '+cur.z;if(cur.m!==null)return name(cur.m);if(cur.u!==null)return uf(cur.u);return'Brasil (sem ZZ)'}
+
+async function renderTransversal(){
+ if(!$('transPanel').open)return;
+ let xk=$('transX').value,yk=$('transY').value,min=Math.max(0,+$('transMin').value||0);
+ if(cur.u===null){
+   $('transInterpret').textContent='Calculando o Brasil por blocos, sem carregar todas as seções simultaneamente.';
+   let n=0,sx=0,sy=0,sxx=0,syy=0,sxy=0,minx=Infinity,maxx=-Infinity,miny=Infinity,maxy=-Infinity,sample=[],seen=0;
+   try{
+     await streamNational(async arr=>{
+       for(const r of arr){
+         if(!r[F.I1]||!r[F.I2]||r[F.C1]<min||r[F.C2]<min)continue;
+         let x=transVal(r,xk),y=transVal(r,yk);if(x===null||y===null||!Number.isFinite(x)||!Number.isFinite(y))continue;
+         n++;sx+=x;sy+=y;sxx+=x*x;syy+=y*y;sxy+=x*y;
+         if(x<minx)minx=x;if(x>maxx)maxx=x;if(y<miny)miny=y;if(y>maxy)maxy=y;
+         seen++;if(sample.length<1800)sample.push([x,y]);else{let q=Math.floor(Math.random()*seen);if(q<1800)sample[q]=[x,y]}
+       }
+     },'Análise transversal nacional…');
+     let mx=n?sx/n:NaN,my=n?sy/n:NaN,vx=n?sxx/n-mx*mx:NaN,vy=n?syy/n-my*my:NaN,sdx=vx>0?Math.sqrt(vx):0,sdy=vy>0?Math.sqrt(vy):0,cov=n?sxy/n-mx*my:NaN,rr=sdx&&sdy?cov/(sdx*sdy):NaN;
+     let top=[];
+     await streamNational(async arr=>{
+       for(const r of arr){
+         if(!r[F.I1]||!r[F.I2]||r[F.C1]<min||r[F.C2]<min)continue;
+         let x=transVal(r,xk),y=transVal(r,yk);if(x===null||y===null||!Number.isFinite(x)||!Number.isFinite(y))continue;
+         let zx=sdx?(x-mx)/sdx:0,zy=sdy?(y-my)/sdy:0,score=Math.sqrt(zx*zx+zy*zy),item={r,x,y,zx,zy,score};
+         if(top.length<25){top.push(item);top.sort((p,q)=>q.score-p.score)}else if(score>top[top.length-1].score){top[top.length-1]=item;top.sort((p,q)=>q.score-p.score)}
+       }
+     },'Localizando extremos nacionais…');
+     $('transN').textContent=fmt(n);$('transR').textContent=Number.isFinite(rr)?rr.toFixed(4):'—';$('transR2').textContent=Number.isFinite(rr)?(rr*rr).toFixed(4):'—';
+     $('transMeanX').textContent=Number.isFinite(mx)?tfmt(mx,xk):'—';$('transMeanY').textContent=Number.isFinite(my)?tfmt(my,yk):'—';$('transScope').textContent='Brasil (sem ZZ)';
+     $('transHX').textContent=TRANS_METRICS[xk].short;$('transHY').textContent=TRANS_METRICS[yk].short;
+     $('transInterpret').textContent=corrLabel(rr)+' Universo processado por blocos; nenhuma base nacional completa ficou residente na memória.';
+     drawTransScatter(sample,minx,maxx,miny,maxy,xk,yk);
+     $('transOutliers').inn
