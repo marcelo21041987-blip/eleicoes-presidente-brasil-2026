@@ -1,4 +1,4 @@
-name: Corrigir Origem da Base
+name: Publicar Dashboard Eleitoral
 
 on:
   push:
@@ -6,38 +6,56 @@ on:
   workflow_dispatch: {}
 
 permissions:
-  contents: write
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
 
 jobs:
-  corrigir:
+  publicar:
     runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
     steps:
       - name: Obter repositório
         uses: actions/checkout@v4
 
-      - name: Ajustar carregador
+      - name: Validar dashboard público
         shell: bash
         run: |
           set -euo pipefail
-          python3 - <<'PY'
-          from pathlib import Path
-          p=Path('index.html')
-          s=p.read_text(encoding='utf-8')
-          old="let res=await fetch(new URL(DATA_URL,location.href),{cache:'no-cache'});if(!res.ok)throw Error('Falha ao baixar a base de dados: HTTP '+res.status);"
-          new="let urls=['https://raw.githubusercontent.com/marcelo21041987-blip/eleicoes-presidente-brasil-2026/main/data.bin','https://raw.githack.com/marcelo21041987-blip/eleicoes-presidente-brasil-2026/main/data.bin'];let res=null,lastErr=null;for(let u of urls){try{let ctl=new AbortController(),tm=setTimeout(()=>ctl.abort(),30000),r=await fetch(u,{cache:'no-store',signal:ctl.signal});clearTimeout(tm);if(r.ok){res=r;break}lastErr=Error('HTTP '+r.status)}catch(e){lastErr=e}}if(!res)throw Error('Não foi possível baixar a base: '+(lastErr?lastErr.message:'erro de rede'));"
-          if old not in s: raise SystemExit('Trecho de download não localizado')
-          s=s.replace(old,new,1)
-          s=s.replace('Dados incorporados no próprio HTML.','Base publicada no GitHub • carregamento móvel otimizado.',1)
-          p.write_text(s,encoding='utf-8')
-          PY
+          test -f index.html
+          test -f data.bin
+          grep -qi '<!doctype html' index.html
           grep -q 'raw.githubusercontent.com/marcelo21041987-blip/eleicoes-presidente-brasil-2026/main/data.bin' index.html
+          grep -q 'Análise transversal — cruzar variáveis' index.html
+          test $(wc -c < index.html) -gt 40000
+          test $(wc -c < data.bin) -gt 12000000
 
-      - name: Gravar correção
+      - name: Preparar site
         shell: bash
         run: |
-          set -euo pipefail
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add index.html
-          git commit -m "Corrigir download da base no celular"
-          git push
+          mkdir -p _site
+          cp index.html data.bin _site/
+          touch _site/.nojekyll
+
+      - name: Configurar GitHub Pages
+        id: pages
+        continue-on-error: true
+        uses: actions/configure-pages@v5
+
+      - name: Enviar artefato do site
+        if: ${{ steps.pages.outcome == 'success' }}
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: _site
+
+      - name: Publicar no GitHub Pages
+        if: ${{ steps.pages.outcome == 'success' }}
+        id: deployment
+        uses: actions/deploy-pages@v4
