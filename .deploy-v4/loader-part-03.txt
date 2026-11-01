@@ -1,0 +1,50 @@
+=null?'—':sg(y-x))+'</td></tr>').join('');
+ const a1=A.apt1?pct(A.abs1/A.apt1):'—',a2=A.apt2?pct(A.abs2/A.apt2):'—';
+ $('auditTotalsNote').textContent='Abstenção sobre aptos em seções instaladas: '+a1+' no 1º turno e '+a2+' no 2º. '+(nacional?'Os nulos técnicos são os valores do relatório nacional do TSE.':'Nulos técnicos não foram discriminados para este recorte; por isso aparecem como não disponíveis.');
+}
+
+function calcularTriagem(){
+ const filter=$('triageFilter').value;
+ if(cur.u===null){
+   const T=SUMMARY.triageNational,names=['Menos de 5%','5% a menos de 10%','10% a menos de 20%','20% a menos de 50%','50% ou mais'];
+   $('crossScope').textContent=fmt(T.eligible)+' seções com ao menos 100 comparecimentos em cada turno. Brasil: 26 estados e DF; exterior excluído deste cruzamento.';
+   $('crossRows').innerHTML=T.bins.map((g,i)=>'<tr><td>'+names[i]+'</td><td>'+fmt(g.n)+'</td><td>'+(g.apt1?fmt(g.abs1)+' ('+pct(g.abs1/g.apt1)+') → '+fmt(g.abs2)+' ('+pct(g.abs2/g.apt2)+')':'—')+'</td><td>'+(g.c1?fmt(g.bn1)+' ('+pct(g.bn1/g.c1)+') → '+fmt(g.bn2)+' ('+pct(g.bn2/g.c2)+')':'—')+'</td></tr>').join('');
+   $('triBio').textContent=fmt(T.counts.bio);$('triTurnout').textContent=fmt(T.counts.turnout);$('triInvalid').textContent=fmt(T.counts.invalid);$('triEligible').textContent=fmt(T.counts.eligible);
+   const list=T.top[filter]||[];
+   $('triageRows').innerHTML=list.length?list.map(r=>'<tr data-u="'+r[0]+'" data-m="'+r[1]+'" data-z="'+r[2]+'" data-s="'+r[3]+'"><td>'+escHtml(uf(r[0])+' · '+name(r[1]))+'</td><td>'+r[2]+' / '+r[3]+'</td><td>'+fmt(r[4])+' → '+fmt(r[5])+'</td><td>'+fmt(r[6])+' → '+fmt(r[7])+'</td><td>'+fmt(r[8])+' → '+fmt(r[9])+'</td><td>'+fmt(r[10])+' → '+fmt(r[11])+'</td><td>'+fmt(r[12])+' → '+fmt(r[13])+'</td></tr>').join(''):'<tr><td colspan="7" class="audit-empty">Nenhuma seção atende ao critério.</td></tr>';
+   $('triageRows').querySelectorAll('tr[data-u]').forEach(tr=>tr.onclick=()=>gotoCase(+tr.dataset.u,+tr.dataset.m,+tr.dataset.z,+tr.dataset.s));
+   $('triageNote').textContent='Resumo nacional pré-calculado. Clique em um caso para carregar apenas a UF correspondente. A triagem não determina a causa da variação.';
+   return;
+ }
+ const selected=sel(), rangeNow=range();
+ const bins=Array.from({length:5},()=>({n:0,apt1:0,apt2:0,abs1:0,abs2:0,c1:0,c2:0,bn1:0,bn2:0}));
+ const counts={bio:0,turnout:0,invalid:0,eligible:0}, list=[];let eligible=0;
+ const start=rangeNow[0],end=rangeNow[1];
+ for(let i=start;i<end;i++){
+  const r=rows[i];if(selected&&r!==selected)continue;
+  if(!r[F.I1]||!r[F.I2]||r[F.C1]<100||r[F.C2]<100)continue;
+  eligible++;
+  let ratio=r[F.BIO2]/r[F.C2],k=ratio<.05?0:ratio<.1?1:ratio<.2?2:ratio<.5?3:4,g=bins[k];
+  g.n++;g.apt1+=r[F.APT1];g.apt2+=r[F.APT2];g.abs1+=r[F.ABS1];g.abs2+=r[F.ABS2];g.c1+=r[F.C1];g.c2+=r[F.C2];g.bn1+=r[F.B1]+r[F.N1];g.bn2+=r[F.B2]+r[F.N2];
+  const dc=r[F.C2]-r[F.C1],b1=r[F.B1]+r[F.N1],b2=r[F.B2]+r[F.N2],di=b2-b1,dp=Math.abs(b2/r[F.C2]-b1/r[F.C1]),da=r[F.APT2]-r[F.APT1];
+  const hit={bio:ratio>=.5,turnout:Math.abs(dc)>=100&&Math.abs(dc)/r[F.C1]>=.5,invalid:Math.abs(di)>=20&&dp>=.1,eligible:Math.abs(da)>20};
+  for(const k2 of Object.keys(counts))if(hit[k2])counts[k2]++;
+  if(hit[filter])list.push({i,score:filter==='bio'?ratio:filter==='turnout'?Math.abs(dc):filter==='invalid'?Math.abs(di):Math.abs(da)});
+ }
+ const names=['Menos de 5%','5% a menos de 10%','10% a menos de 20%','20% a menos de 50%','50% ou mais'];
+ $('crossScope').textContent=fmt(eligible)+' seções com ao menos 100 comparecimentos em cada turno. O cruzamento acompanha os filtros escolhidos.';
+ $('crossRows').innerHTML=bins.map((g,i)=>'<tr><td>'+names[i]+'</td><td>'+fmt(g.n)+'</td><td>'+(g.apt1?fmt(g.abs1)+' ('+pct(g.abs1/g.apt1)+') → '+fmt(g.abs2)+' ('+pct(g.abs2/g.apt2)+')':'—')+'</td><td>'+(g.c1?fmt(g.bn1)+' ('+pct(g.bn1/g.c1)+') → '+fmt(g.bn2)+' ('+pct(g.bn2/g.c2)+')':'—')+'</td></tr>').join('');
+ $('triBio').textContent=fmt(counts.bio);$('triTurnout').textContent=fmt(counts.turnout);$('triInvalid').textContent=fmt(counts.invalid);$('triEligible').textContent=fmt(counts.eligible);
+ list.sort((x,y)=>y.score-x.score);
+ $('triageRows').innerHTML=list.length?list.slice(0,25).map(({i})=>{let r=rows[i];return '<tr data-row="'+i+'"><td>'+escHtml(uf(r[F.U])+' · '+name(r[F.M]))+'</td><td>'+r[F.Z]+' / '+r[F.S]+'</td><td>'+fmt(r[F.C1])+' → '+fmt(r[F.C2])+'</td><td>'+fmt(r[F.ABS1])+' → '+fmt(r[F.ABS2])+'</td><td>'+fmt(r[F.B1]+r[F.N1])+' → '+fmt(r[F.B2]+r[F.N2])+'</td><td>'+fmt(r[F.BIO1])+' → '+fmt(r[F.BIO2])+'</td><td>'+fmt(r[F.APT1])+' → '+fmt(r[F.APT2])+'</td></tr>'}).join(''):'<tr><td colspan="7" class="audit-empty">Nenhuma seção atende ao critério neste recorte.</td></tr>';
+ $('triageNote').textContent='Exibindo até 25 de '+fmt(list.length)+' casos do critério escolhido. A triagem não determina a causa da variação; consulte BU, log e ata.';
+ $('triageRows').querySelectorAll('tr[data-row]').forEach(tr=>tr.onclick=()=>{let r=rows[+tr.dataset.row];gotoCase(r[F.U],r[F.M],r[F.Z],r[F.S])});
+}
+
+
+const TRANS_METRICS={
+ c1:{label:'Comparecimento — 1º turno',short:'Comp. 1T',unit:'count'},c2:{label:'Comparecimento — 2º turno',short:'Comp. 2T',unit:'count'},dc:{label:'Variação de comparecimento (2T − 1T)',short:'Δ comp.',unit:'count'},dcp:{label:'Variação percentual do comparecimento',short:'Δ comp. %',unit:'pct'},
+ apt1:{label:'Aptos — 1º turno',short:'Aptos 1T',unit:'count'},apt2:{label:'Aptos — 2º turno',short:'Aptos 2T',unit:'count'},dapt:{label:'Variação de aptos (2T − 1T)',short:'Δ aptos',unit:'count'},
+ abs1:{label:'Taxa de abstenção — 1º turno',short:'Abst. 1T',unit:'pct'},abs2:{label:'Taxa de abstenção — 2º turno',short:'Abst. 2T',unit:'pct'},dabs:{label:'Variação da taxa de abstenção',short:'Δ abst. p.p.',unit:'pp'},
+ inv1:{label:'Brancos + nulos / comparecimento — 1º turno',short:'Br/Nu 1T',unit:'pct'},inv2:{label:'Brancos + nulos / comparecimento — 2º turno',short:'Br/Nu 2T',unit:'pct'},dinv:{label:'Variação de brancos + nulos',short:'Δ Br/Nu p.p.',unit:'pp'},
+ bio1:{label:'Biomet
