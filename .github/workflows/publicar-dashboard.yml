@@ -1,4 +1,4 @@
-name: Publicar Dashboard Eleitoral
+name: Otimizar Dashboard para Celular
 
 on:
   push:
@@ -6,53 +6,68 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
-  pages: write
-  id-token: write
-
-concurrency:
-  group: pages
-  cancel-in-progress: false
+  contents: write
 
 jobs:
-  publicar:
+  otimizar:
     runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-
     steps:
       - name: Obter repositório
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
 
-      - name: Validar dashboard público
+      - name: Separar base compactada do HTML
         shell: bash
         run: |
           set -euo pipefail
-          test -f index.html
-          grep -qi '<!doctype html' index.html
-          test $(wc -c < index.html) -gt 16000000
-          grep -q 'Análise transversal — cruzar variáveis' index.html
+          python - <<'PY'
+          from pathlib import Path
+          import re, base64
 
-      - name: Preparar site
+          p = Path('index.html')
+          s = p.read_text(encoding='utf-8')
+
+          # Se já foi otimizado, não altera novamente.
+          if "const DATA_URL='data.bin';" in s and Path('data.bin').exists():
+              print('Dashboard já otimizado.')
+              raise SystemExit(0)
+
+          m = re.search(r'const B="([A-Za-z0-9+/=]+)";', s)
+          if not m:
+              raise SystemExit('Base Base64 não localizada em index.html')
+
+          raw = base64.b64decode(m.group(1))
+          Path('data.bin').write_bytes(raw)
+          s = s[:m.start()] + "const DATA_URL='data.bin';" + s[m.end():]
+
+          old = "async function load(){if(!('DecompressionStream'in window))throw Error('Abra em Chrome/Edge atualizado: este arquivo usa descompressão nativa do navegador.');$('lb').style.width='20%';let bin=Uint8Array.from(atob(B),c=>c.charCodeAt(0)),ds=new DecompressionStream('gzip');let txt=await new Response(new Blob([bin]).stream().pipeThrough(ds)).text();$('lb').style.width='70%';let p=JSON.parse(txt);meta=p.meta;rows=p.rows;index();$('lb').style.width='100%';$('lt').textContent='Base carregada';$('ls').textContent=fmt(rows.length)+' seções • autocontido';init()}"
+          new = "async function load(){if(!('DecompressionStream'in window))throw Error('Abra em Chrome/Edge atualizado: este painel usa descompressão nativa do navegador.');$('lt').textContent='Baixando base…';$('ls').textContent='Arquivo de dados compactado • cerca de 12,6 MB';$('lb').style.width='18%';await new Promise(r=>requestAnimationFrame(r));let res=await fetch(new URL(DATA_URL,location.href),{cache:'no-cache'});if(!res.ok)throw Error('Falha ao baixar a base de dados: HTTP '+res.status);$('lt').textContent='Descompactando base…';$('lb').style.width='42%';await new Promise(r=>requestAnimationFrame(r));let ds=new DecompressionStream('gzip');let txt=await new Response(res.body.pipeThrough(ds)).text();$('lt').textContent='Lendo 499 mil seções…';$('lb').style.width='68%';await new Promise(r=>requestAnimationFrame(r));let p=JSON.parse(txt);meta=p.meta;rows=p.rows;txt=null;p=null;$('lt').textContent='Montando índices…';$('lb').style.width='84%';await new Promise(r=>requestAnimationFrame(r));index();$('lb').style.width='100%';$('lt').textContent='Base carregada';$('ls').textContent=fmt(rows.length)+' seções • dados carregados do GitHub';init()}"
+
+          if old not in s:
+              raise SystemExit('Função load() esperada não localizada; nenhuma alteração aplicada.')
+          s = s.replace(old, new, 1)
+          p.write_text(s, encoding='utf-8')
+
+          print('index.html:', p.stat().st_size, 'bytes')
+          print('data.bin:', Path('data.bin').stat().st_size, 'bytes')
+          PY
+
+          grep -q "const DATA_URL='data.bin';" index.html
+          test -s data.bin
+          test $(wc -c < index.html) -lt 1000000
+          test $(wc -c < data.bin) -gt 12000000
+
+      - name: Gravar versão otimizada
         shell: bash
         run: |
-          mkdir -p _site
-          cp index.html _site/index.html
-          touch _site/.nojekyll
-
-      - name: Configurar GitHub Pages
-        id: pages
-        continue-on-error: true
-        uses: actions/configure-pages@v5
-
-      - name: Enviar artefato do site
-        if: ${{ steps.pages.outcome == 'success' }}
-        uses: actions/upload-pages-artifact@v4
-        with:
-          path: _site
-
-      - name: Publicar no GitHub Pages
-        if: ${{ steps.pages.outcome == 'success' }}
-        id: deployment
-        uses: actions/deploy-pages@v4
+          set -euo pipefail
+          if git diff --quiet -- index.html data.bin && git ls-files --error-unmatch data.bin >/dev/null 2>&1; then
+            echo 'Nada a gravar.'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add index.html data.bin
+          git commit -m 'Otimizar carregamento móvel da base eleitoral'
+          git push origin HEAD:main
