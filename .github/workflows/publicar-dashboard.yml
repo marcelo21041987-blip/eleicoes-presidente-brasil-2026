@@ -1,4 +1,4 @@
-name: Materializar Dashboard V05 Completo
+name: Publicar Dashboard Eleitoral
 
 on:
   push:
@@ -6,73 +6,53 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
+  pages: write
+  id-token: write
 
 concurrency:
-  group: materializar-dashboard-v05
+  group: pages
   cancel-in-progress: false
 
 jobs:
-  materializar:
+  publicar:
     runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
     steps:
-      - name: Obter repositório com histórico
+      - name: Obter repositório
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
-      - name: Verificar se ainda é o carregador modular
-        id: check
-        shell: bash
-        run: |
-          if grep -q 'Carregando a base pública e a camada de análise transversal' index.html; then
-            echo 'materializar=sim' >> "$GITHUB_OUTPUT"
-          else
-            echo 'materializar=nao' >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Reconstruir V05 integral dentro do repositório
-        if: steps.check.outputs.materializar == 'sim'
+      - name: Validar dashboard público
         shell: bash
         run: |
           set -euo pipefail
-          cp index.html loader-v05.html
-          git show 70dd0a52de481e87eaed86d57665af1ed24d721d:index.html > base-v04.html
-          node <<'NODE'
-          const fs = require('fs');
-          const loader = fs.readFileSync('loader-v05.html','utf8');
-          const base = fs.readFileSync('base-v04.html','utf8');
-          const m = loader.match(/<script>([\s\S]*)<\/script>\s*<\/body>/i);
-          if (!m) throw new Error('Script do carregador V05 não localizado');
-          let output = '';
-          global.fetch = async () => ({ ok: true, status: 200, text: async () => base });
-          global.document = {
-            open() {},
-            write(s) { output = s; },
-            close() {},
-            getElementById() { return { textContent: '' }; }
-          };
-          (async () => {
-            await eval(m[1]);
-            if (!output || output.length < 10000000) throw new Error('HTML reconstruído abaixo do tamanho esperado');
-            if (!output.includes('Análise transversal — cruzar variáveis')) throw new Error('Camada transversal ausente');
-            if (!output.includes('Versão 05 — análise transversal')) throw new Error('Identificação V05 ausente');
-            fs.writeFileSync('index.html', output, 'utf8');
-            console.log('V05 integral materializada:', Buffer.byteLength(output, 'utf8'), 'bytes');
-          })().catch(e => { console.error(e); process.exit(1); });
-          NODE
-          rm -f loader-v05.html base-v04.html
+          test -f index.html
+          grep -qi '<!doctype html' index.html
           test $(wc -c < index.html) -gt 16000000
           grep -q 'Análise transversal — cruzar variáveis' index.html
-          sha256sum index.html
 
-      - name: Gravar V05 integral na branch main
-        if: steps.check.outputs.materializar == 'sim'
+      - name: Preparar site
         shell: bash
         run: |
-          set -euo pipefail
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add index.html
-          git commit -m 'Publicar dashboard V05 completo no GitHub'
-          git push origin HEAD:main
+          mkdir -p _site
+          cp index.html _site/index.html
+          touch _site/.nojekyll
+
+      - name: Configurar GitHub Pages
+        id: pages
+        continue-on-error: true
+        uses: actions/configure-pages@v5
+
+      - name: Enviar artefato do site
+        if: ${{ steps.pages.outcome == 'success' }}
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: _site
+
+      - name: Publicar no GitHub Pages
+        if: ${{ steps.pages.outcome == 'success' }}
+        id: deployment
+        uses: actions/deploy-pages@v4
