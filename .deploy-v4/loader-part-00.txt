@@ -115,4 +115,4 @@ function init(){
  initTransSelectors();render();
 }
 
-function fillM(){let e=$('mun');e.innerHTML='<option value="">Todos</option>';e.disabled=cur.u===null;$('z').innerHTML='<option value="">Todas</option>';$('z').disabled=true;$('s').innerHTML='<option value="">Todas</option>';$('s').disabled=true;if(cur.u===null)return;let[a,b]=state.get(cur.u),last=-1;for(let i=a;i<b;i++){let m=rows[i][F.M];if(m!==last){e.add(new Option(name(m),m));last=m}}}
+function fillM(){let e=$('mun');e.innerHTML='<option value="">Todos</option>';e.disabled=cur.u===null;$('z').innerHTML='<option value="">Todas</option>';$('z').disabled=true
