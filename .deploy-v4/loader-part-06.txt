@@ -1,0 +1,5 @@
+ole.error(e)}
+}
+
+
+load().catch(e=>{$('lt').textContent='Erro ao carregar';$('ls').textContent=e.message;console.error(e)});
