@@ -1,4 +1,4 @@
-name: Publicar Dashboard Eleitoral
+name: Fragmentar Base para Celular
 
 on:
   push:
@@ -6,56 +6,76 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
-  pages: write
-  id-token: write
-
-concurrency:
-  group: pages
-  cancel-in-progress: false
+  contents: write
 
 jobs:
-  publicar:
+  fragmentar:
     runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-
     steps:
       - name: Obter repositório
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
 
-      - name: Validar dashboard público
+      - name: Gerar blocos JSON e adaptar carregador
         shell: bash
         run: |
           set -euo pipefail
-          test -f index.html
-          test -f data.bin
-          grep -qi '<!doctype html' index.html
-          grep -q "const DATA_URL='data.bin';" index.html
-          grep -q 'Análise transversal — cruzar variáveis' index.html
-          test $(wc -c < index.html) -gt 40000
-          test $(wc -c < data.bin) -gt 12000000
+          if [ ! -f data.bin ]; then
+            echo "Base já fragmentada; nada a fazer."
+            exit 0
+          fi
+          python - <<'PY'
+          import gzip, json, os, re, shutil
+          from pathlib import Path
 
-      - name: Preparar site
+          with gzip.open('data.bin','rt',encoding='utf-8') as f:
+              payload=json.load(f)
+          meta=payload['meta']
+          rows=payload['rows']
+          out=Path('data')
+          if out.exists(): shutil.rmtree(out)
+          out.mkdir()
+          chunk_size=50000
+          chunks=[]
+          for n,start in enumerate(range(0,len(rows),chunk_size)):
+              part=rows[start:start+chunk_size]
+              fn=f'chunk-{n:02d}.json'
+              with (out/fn).open('w',encoding='utf-8') as f:
+                  json.dump(part,f,ensure_ascii=False,separators=(',',':'))
+              chunks.append({'file':fn,'count':len(part)})
+          manifest={'meta':meta,'count':len(rows),'chunks':chunks}
+          with (out/'manifest.json').open('w',encoding='utf-8') as f:
+              json.dump(manifest,f,ensure_ascii=False,separators=(',',':'))
+
+          p=Path('index.html')
+          s=p.read_text(encoding='utf-8')
+          s=s.replace('Dados incorporados no próprio HTML.','Base em blocos otimizados para celular.')
+          old=r"async function load\(\)\{.*?\}\nfunction index\(\)"
+          new="""async function fetchJsonFile(rel){let urls=[new URL(rel,location.href).href,'https://raw.githubusercontent.com/marcelo21041987-blip/eleicoes-presidente-brasil-2026/main/'+rel];let last;for(let u of urls){try{let r=await fetch(u,{cache:'no-store'});if(r.ok)return await r.json();last=Error('HTTP '+r.status+' em '+u)}catch(e){last=e}}throw last||Error('Falha ao baixar '+rel)}
+async function load(){$('lt').textContent='Preparando base…';$('ls').textContent='Carregamento em blocos compatível com celular';$('lb').style.width='5%';await new Promise(r=>requestAnimationFrame(r));let man=await fetchJsonFile('data/manifest.json');meta=man.meta;rows=[];let total=man.chunks.length;for(let i=0;i<total;i++){$('lt').textContent='Carregando base… '+(i+1)+'/'+total;$('ls').textContent=fmt(rows.length)+' de '+fmt(man.count)+' seções';$('lb').style.width=(8+78*i/total).toFixed(1)+'%';await new Promise(r=>requestAnimationFrame(r));let part=await fetchJsonFile('data/'+man.chunks[i].file);for(let j=0;j<part.length;j++)rows.push(part[j]);part=null}if(rows.length!==man.count)throw Error('Base incompleta: '+fmt(rows.length)+' de '+fmt(man.count)+' seções');$('lt').textContent='Montando índices…';$('ls').textContent=fmt(rows.length)+' seções carregadas';$('lb').style.width='90%';await new Promise(r=>requestAnimationFrame(r));index();$('lb').style.width='100%';$('lt').textContent='Base carregada';$('ls').textContent=fmt(rows.length)+' seções • carregamento móvel concluído';init()}
+function index()"""
+          s2,n=re.subn(old,new,s,count=1,flags=re.S)
+          if n!=1:
+              raise SystemExit(f'Não foi possível substituir o carregador: {n}')
+          p.write_text(s2,encoding='utf-8')
+          print('seções',len(rows),'chunks',len(chunks),'html',p.stat().st_size)
+          PY
+          rm -f data.bin
+          test -f data/manifest.json
+          test -f data/chunk-00.json
+          grep -q "Carregamento em blocos compatível com celular" index.html
+
+      - name: Publicar arquitetura móvel
         shell: bash
         run: |
-          mkdir -p _site
-          cp index.html data.bin _site/
-          touch _site/.nojekyll
-
-      - name: Configurar GitHub Pages
-        id: pages
-        continue-on-error: true
-        uses: actions/configure-pages@v5
-
-      - name: Enviar artefato do site
-        if: ${{ steps.pages.outcome == 'success' }}
-        uses: actions/upload-pages-artifact@v4
-        with:
-          path: _site
-
-      - name: Publicar no GitHub Pages
-        if: ${{ steps.pages.outcome == 'success' }}
-        id: deployment
-        uses: actions/deploy-pages@v4
+          set -euo pipefail
+          if git diff --quiet && [ -z "$(git ls-files --others --exclude-standard)" ]; then
+            echo "Sem alterações."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add index.html data data.bin
+          git commit -m "Corrigir carregamento móvel com base fragmentada"
+          git push
