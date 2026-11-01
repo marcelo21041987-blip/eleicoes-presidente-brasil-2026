@@ -1,0 +1,82 @@
+name: Gerar dados mobile por UF
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/gerar-dados-mobile-v2.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  gerar:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Obter repositório
+        uses: actions/checkout@v4
+
+      - name: Dividir base por UF sem descompressão no navegador
+        run: |
+          python - <<'PY'
+          import gzip, json, hashlib
+          from pathlib import Path
+
+          with gzip.open('data.bin', 'rt', encoding='utf-8') as f:
+              p = json.load(f)
+
+          meta = p['meta']
+          rows = p['rows']
+          ufs = meta['ufs']
+          out = Path('data')
+          out.mkdir(exist_ok=True)
+
+          (out / 'meta.json').write_text(
+              json.dumps(meta, ensure_ascii=False, separators=(',', ':')),
+              encoding='utf-8'
+          )
+
+          grupos = {i: [] for i in range(len(ufs))}
+          for r in rows:
+              grupos[int(r[0])].append(r)
+
+          files = []
+          for i, uf in enumerate(ufs):
+              fn = f'uf-{i:02d}.json'
+              raw = json.dumps(grupos[i], ensure_ascii=False, separators=(',', ':')).encode('utf-8')
+              (out / fn).write_bytes(raw)
+              files.append({
+                  'i': i,
+                  'uf': uf,
+                  'file': fn,
+                  'rows': len(grupos[i]),
+                  'bytes': len(raw),
+                  'sha256': hashlib.sha256(raw).hexdigest()
+              })
+
+          manifest = {
+              'version': 2,
+              'totalRows': len(rows),
+              'files': files
+          }
+          (out / 'manifest.json').write_text(
+              json.dumps(manifest, ensure_ascii=False, separators=(',', ':')),
+              encoding='utf-8'
+          )
+
+          print('Total:', len(rows), 'seções')
+          for x in files:
+              print(x['uf'], x['rows'], x['bytes'])
+          PY
+
+      - name: Publicar arquivos divididos
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/
+          if git diff --cached --quiet; then
+            echo "Nenhuma alteração a publicar"
+          else
+            git commit -m "Gerar base mobile dividida por UF"
+            git push
+          fi
