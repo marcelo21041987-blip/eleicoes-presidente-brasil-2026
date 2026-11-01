@@ -1,0 +1,56 @@
+name: Gerar data-v2 em blocos leves
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/gerar-data-v2.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  gerar:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Obter repositório
+        uses: actions/checkout@v4
+
+      - name: Gerar blocos JSON de até 8 mil seções
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import gzip, json, shutil, hashlib
+          raw = gzip.decompress(Path('data.bin').read_bytes())
+          obj = json.loads(raw)
+          rows = obj['rows']
+          out = Path('data-v2')
+          if out.exists(): shutil.rmtree(out)
+          out.mkdir()
+          by = {}
+          for r in rows:
+              by.setdefault(r[0], []).append(r)
+          manifest = {'version':3,'totalRows':len(rows),'chunkSize':8000,'ufs':{}}
+          for u in range(len(obj['meta']['ufs'])):
+              arr = by.get(u, [])
+              files=[]
+              for j in range(0,len(arr),8000):
+                  chunk=arr[j:j+8000]
+                  name=f'uf-{u:02d}-{j//8000:02d}.json'
+                  text=json.dumps(chunk,ensure_ascii=False,separators=(',',':'))
+                  (out/name).write_text(text,encoding='utf-8')
+                  files.append({'file':name,'rows':len(chunk),'bytes':len(text.encode('utf-8')),'sha256':hashlib.sha256(text.encode('utf-8')).hexdigest()})
+              manifest['ufs'][str(u)]={'uf':obj['meta']['ufs'][u],'rows':len(arr),'files':files}
+          (out/'manifest.json').write_text(json.dumps(manifest,ensure_ascii=False,separators=(',',':')),encoding='utf-8')
+          print('chunks',sum(len(v['files']) for v in manifest['ufs'].values()),'rows',len(rows))
+          PY
+
+      - name: Publicar blocos
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add data-v2
+          git diff --cached --quiet && exit 0
+          git commit -m 'Gerar base v3 em blocos leves para mobile'
+          git push
