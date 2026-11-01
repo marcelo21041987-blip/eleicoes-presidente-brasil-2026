@@ -1,0 +1,99 @@
+name: Publicar dashboard mobile v4
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/publicar-mobile-v4.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  publicar:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Obter repositório
+        uses: actions/checkout@v4
+
+      - name: Reconstruir loader testado
+        run: |
+          cat .deploy-v4/loader-part-*.txt > mobile-loader-v4.js
+          test "$(sha256sum mobile-loader-v4.js | cut -d' ' -f1)" = "0938791300ff961e03d3e0b06f8121112bbd2b30c78b294a6c61712d3e6c4312"
+          node --check mobile-loader-v4.js
+
+      - name: Gerar resumo nacional leve
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import gzip,json
+          obj=json.loads(gzip.decompress(Path('data.bin').read_bytes()))
+          rows=obj['rows']; meta=obj['meta']
+          U,M,Z,S,C1,L1,F1,NO1,B1,N1,I1,C2,L2,F2,NO2,B2,N2,I2,BIO1,BIO2,APT1,APT2,ABS1,ABS2=range(24)
+          def empty(): return dict(n=0,c1=0,l1=0,f1=0,no1=0,b1=0,n1=0,i1=0,c2=0,l2=0,f2=0,no2=0,b2=0,n2=0,i2=0,bio1=0,bio2=0,apt1=0,apt2=0,abs1=0,abs2=0)
+          def add(A,r):
+            A['n']+=1
+            for k,p in [('c1',C1),('l1',L1),('f1',F1),('no1',NO1),('b1',B1),('n1',N1),('i1',I1),('c2',C2),('l2',L2),('f2',F2),('no2',NO2),('b2',B2),('n2',N2),('i2',I2),('bio1',BIO1),('bio2',BIO2)]: A[k]+=r[p]
+            if r[I1]: A['apt1']+=r[APT1]; A['abs1']+=r[ABS1]
+            if r[I2]: A['apt2']+=r[APT2]; A['abs2']+=r[ABS2]
+          national=empty(); per=[empty() for _ in meta['ufs']]
+          bins=[dict(n=0,apt1=0,apt2=0,abs1=0,abs2=0,c1=0,c2=0,bn1=0,bn2=0) for _ in range(5)]
+          counts=dict(bio=0,turnout=0,invalid=0,eligible=0); tops={k:[] for k in counts}; out=[]; eligible=0
+          for r in rows:
+            add(national,r); add(per[r[U]],r)
+            if meta['ufs'][r[U]]=='ZZ' or not r[I1] or not r[I2] or r[C1]<100 or r[C2]<100: continue
+            eligible+=1
+            ratio=r[BIO2]/r[C2]; bi=0 if ratio<.05 else 1 if ratio<.10 else 2 if ratio<.20 else 3 if ratio<.50 else 4
+            g=bins[bi]; g['n']+=1; g['apt1']+=r[APT1]; g['apt2']+=r[APT2]; g['abs1']+=r[ABS1]; g['abs2']+=r[ABS2]; g['c1']+=r[C1]; g['c2']+=r[C2]; g['bn1']+=r[B1]+r[N1]; g['bn2']+=r[B2]+r[N2]
+            dc=r[C2]-r[C1]; bn1=r[B1]+r[N1]; bn2=r[B2]+r[N2]; di=bn2-bn1; dp=abs(bn2/r[C2]-bn1/r[C1]); da=r[APT2]-r[APT1]
+            hit={'bio':ratio>=.5,'turnout':abs(dc)>=100 and abs(dc)/r[C1]>=.5,'invalid':abs(di)>=20 and dp>=.1,'eligible':abs(da)>20}
+            score={'bio':ratio,'turnout':abs(dc),'invalid':abs(di),'eligible':abs(da)}
+            compact=[r[U],r[M],r[Z],r[S],r[C1],r[C2],r[ABS1],r[ABS2],bn1,bn2,r[BIO1],r[BIO2],r[APT1],r[APT2]]
+            for k in counts:
+              if hit[k]: counts[k]+=1; tops[k].append((score[k],compact))
+            d1=r[L1]+r[F1]; d2=r[L2]+r[F2]
+            if d1>=100 and d2>=100:
+              sh=r[L2]/d2-r[L1]/d1
+              out.append((abs(sh),{'sh':sh,'r':[r[U],r[M],r[Z],r[S],r[L1],r[F1],r[L2],r[F2],r[C1],r[C2]]}))
+          for k in tops: tops[k]=[x[1] for x in sorted(tops[k],key=lambda x:x[0],reverse=True)[:25]]
+          outliers=[x[1] for x in sorted(out,key=lambda x:x[0],reverse=True)[:50]]
+          manifest=json.loads(Path('data-v2/manifest.json').read_text())
+          chunks={u:[f['file'] for f in v['files']] for u,v in manifest['ufs'].items()}
+          summary={'meta':meta,'national':national,'perUF':per,'triageNational':{'eligible':eligible,'bins':bins,'counts':counts,'top':tops},'outliersNational':outliers}
+          assert national['n']==499248
+          assert counts=={'bio':93,'turnout':1,'invalid':154,'eligible':58}, counts
+          assert eligible==492707, eligible
+          assert per[17]['n']==27142, per[17]['n']
+          Path('summary-v4.js').write_text('const SUMMARY='+json.dumps(summary,ensure_ascii=False,separators=(',',':'))+';const CHUNKS='+json.dumps(chunks,separators=(',',':'))+';',encoding='utf-8')
+          print('Resumo validado:',national['n'],eligible,counts,'PR',per[17]['n'])
+          PY
+          node --check summary-v4.js
+
+      - name: Montar index leve
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('index.html')
+          s=p.read_text(encoding='utf-8')
+          a=s.index('<script>')
+          b=s.rindex('</script>')+len('</script>')
+          scripts='<script src="summary-v4.js"></script>\n<script src="mobile-loader-v4.js"></script>'
+          s=s[:a]+scripts+s[b:]
+          s=s.replace('Base por UF • carregamento móvel compatível.','Resumo nacional imediato • detalhes por UF sob demanda.')
+          s=s.replace('Versão 05 — análise transversal:', 'Versão 05 — mobile v4 + análise transversal:')
+          p.write_text(s,encoding='utf-8')
+          PY
+          test $(wc -c < index.html) -lt 100000
+          grep -q 'summary-v4.js' index.html
+          grep -q 'mobile-loader-v4.js' index.html
+          ! grep -q 'DecompressionStream' index.html
+          ! grep -q "const DATA_URL='data.bin'" index.html
+
+      - name: Publicar versão validada
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add index.html summary-v4.js mobile-loader-v4.js
+          git commit -m 'Publicar dashboard mobile v4 com carregamento sob demanda'
+          git push
